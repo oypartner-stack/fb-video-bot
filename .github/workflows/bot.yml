@@ -1,0 +1,46 @@
+name: FB Video Bot
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          pip install yt-dlp cloudinary requests selenium webdriver-manager
+
+      - name: Write cookies file
+        run: |
+          echo "${{ secrets.FB_COOKIES }}" > /tmp/cookies.txt
+
+      - name: Run bot
+        env:
+          CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+          CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          GREEN_SCREEN_ID: ${{ secrets.GREEN_SCREEN_ID }}
+          OUTRO_ID: ${{ secrets.OUTRO_ID }}
+        run: |
+          python bot.py
+
+      - name: Save processed IDs
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          git add processed_ids.json
+          git diff --staged --quiet || git commit -m "Update processed IDs [skip ci]"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
