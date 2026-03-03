@@ -84,6 +84,20 @@ for cookie in cookies:
 driver.get("https://www.facebook.com/PureTVplus/reels/")
 time.sleep(8)
 
+# سكرول للأعلى للتأكد من رؤية أحدث الفيديوهات
+driver.execute_script("window.scrollTo(0, 0);")
+time.sleep(2)
+
+# سكرول للأسفل لتحميل المزيد
+driver.execute_script("window.scrollTo(0, 1000);")
+time.sleep(2)
+driver.execute_script("window.scrollTo(0, 2000);")
+time.sleep(2)
+
+# رجوع للأعلى لجلب الأحدث أولاً
+driver.execute_script("window.scrollTo(0, 0);")
+time.sleep(1)
+
 page_source = driver.page_source
 driver.quit()
 
@@ -101,7 +115,7 @@ for path, vid_id in reel_links:
             "url": clean_url
         })
 
-print(json.dumps(videos[:5]))
+print(json.dumps(videos[:10]))
 """
 
     with open("/tmp/selenium_script.py", "w") as f:
@@ -244,7 +258,9 @@ def add_outro(main_video, outro_video, output_path, w, h):
     probe = subprocess.run([
         "ffprobe", "-v", "quiet",
         "-print_format", "json",
-        "-show_streams", outro_video
+        "-show_streams",
+        "-show_format",
+        outro_video
     ], capture_output=True, text=True)
 
     outro_has_audio = False
@@ -259,7 +275,6 @@ def add_outro(main_video, outro_video, output_path, w, h):
     print(f"🔊 الـ Outro {'فيه صوت' if outro_has_audio else 'بدون صوت'}")
 
     if outro_has_audio:
-        # دمج مع صوت للاثنين
         result = subprocess.run([
             "ffmpeg", "-y",
             "-i", main_video,
@@ -276,7 +291,6 @@ def add_outro(main_video, outro_video, output_path, w, h):
             output_path
         ], capture_output=True, text=True, timeout=600)
     else:
-        # الـ Outro بدون صوت — نضيف صمت له
         result = subprocess.run([
             "ffmpeg", "-y",
             "-i", main_video,
