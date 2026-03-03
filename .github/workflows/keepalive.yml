@@ -1,0 +1,51 @@
+name: Keep Alive
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Keep alive
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          echo "$(date)" > .keepalive
+          git add .keepalive
+          git commit -m "Keep alive [skip ci]"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+---
+
+## المرحلة 6 — إعداد cron-job.org
+
+**1 —** اذهب إلى [cron-job.org](https://cron-job.org) وأنشئ حساباً
+
+**2 —** اضغط **CREATE CRONJOB** وأضف:
+- **Title**: FB Bot
+- **URL**: `https://api.github.com/repos/USERNAME/fb-video-bot/actions/workflows/bot.yml/dispatches`
+- **Schedule**: Every 10 minutes
+- **Method**: POST
+- **Headers**:
+  - `Accept` : `application/vnd.github.v3+json`
+  - `Authorization` : `Bearer YOUR_GITHUB_TOKEN`
+  - `Content-Type` : `application/json`
+- **Body**: `{"ref":"main"}`
+
+**3 —** احفظ واضغط **Run** للاختبار
+
+---
+
+## ملخص المراحل ✅
+```
+Cloudinary     → رفع Green Screen + Outro
+Make.com       → إعداد Webhook + نشر
+GitHub         → رفع bot.py + bot.yml + keepalive.yml + Secrets
+cron-job.org   → تشغيل كل 10 دقائق
