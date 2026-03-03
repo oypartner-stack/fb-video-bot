@@ -7,7 +7,7 @@ import cloudinary.uploader
 import requests
 
 # ─── الإعدادات ───────────────────────────────────────────
-PAGE_URL = "ضع رابط الصفحة هنا"
+PAGE_URL = "https://www.facebook.com/PureTVplus/reels/"
 LAST_IDS_FILE = "processed_ids.json"
 COOKIES_FILE = "/tmp/cookies.txt"
 WEBHOOK_URL = os.environ["WEBHOOK_URL"]
@@ -81,7 +81,7 @@ for cookie in cookies:
     except:
         pass
 
-driver.get("https://www.facebook.com/profile.php?id=PAGE_ID&sk=reels_tab")
+driver.get("https://www.facebook.com/PureTVplus/reels/")
 time.sleep(8)
 
 page_source = driver.page_source
@@ -103,11 +103,6 @@ for path, vid_id in reel_links:
 
 print(json.dumps(videos[:5]))
 """
-
-    # استبدال PAGE_ID بالرابط الفعلي
-    page_id = re.search(r'id=(\d+)', PAGE_URL)
-    if page_id:
-        script = script.replace("PAGE_ID", page_id.group(1))
 
     with open("/tmp/selenium_script.py", "w") as f:
         f.write(script)
@@ -218,7 +213,6 @@ def apply_green_screen(main_video, green_screen_video, output_path, w, h):
 def add_outro(main_video, outro_video, output_path, w, h):
     print("🎬 إضافة Outro...")
 
-    # تعديل أبعاد الـ Outro ليتناسب مع الفيديو الرئيسي
     result = subprocess.run([
         "ffmpeg", "-y",
         "-i", main_video,
@@ -232,7 +226,6 @@ def add_outro(main_video, outro_video, output_path, w, h):
     ], capture_output=True, text=True, timeout=600)
 
     if not os.path.exists(output_path):
-        # محاولة بديلة إذا لم يكن للـ Outro صوت
         print("⚠️ محاولة بديلة للـ Outro...")
         result2 = subprocess.run([
             "ffmpeg", "-y",
