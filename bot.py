@@ -195,27 +195,26 @@ def download_from_cloudinary(public_id, output_path, resource_type="video"):
 # ─── إضافة Green Screen ──────────────────────────────────
 def apply_green_screen(main_video, green_screen_video, output_path, w, h, duration):
     print("🎨 إضافة Green Screen...")
-    print(f"⏱️ مدة الفيديو الرئيسي: {duration:.1f} ثانية - سيتم قطع Green Screen بهذه المدة")
+    print(f"⏱️ مدة الفيديو الرئيسي: {duration:.1f} ثانية")
 
     result = subprocess.run([
         "ffmpeg", "-y",
         "-i", main_video,
         "-i", green_screen_video,
         "-filter_complex",
-        # قطع Green Screen بمدة الفيديو الرئيسي + إزالة اللون الأخضر + الحفاظ على صوت الفيديو الرئيسي
         f"[1:v]trim=duration={duration},scale={w}:{h},colorkey=0x00FF00:0.3:0.1,setpts=PTS-STARTPTS[gs];"
         f"[0:v][gs]overlay=0:0[outv]",
         "-map", "[outv]",
-        "-map", "0:a",          # صوت الفيديو الرئيسي فقط
-        "-c:a", "aac",          # ترميز الصوت
+        "-map", "0:a",
+        "-c:v", "libx264",
+        "-c:a", "aac",
         "-shortest",
         "-preset", "fast",
         output_path
     ], capture_output=True, text=True, timeout=600)
 
     if not os.path.exists(output_path):
-        print(f"⚠️ محاولة بديلة...")
-        # محاولة بديلة إذا لم يكن للفيديو الرئيسي صوت
+        print(f"⚠️ محاولة بديلة بدون صوت...")
         result2 = subprocess.run([
             "ffmpeg", "-y",
             "-i", main_video,
@@ -224,6 +223,7 @@ def apply_green_screen(main_video, green_screen_video, output_path, w, h, durati
             f"[1:v]trim=duration={duration},scale={w}:{h},colorkey=0x00FF00:0.3:0.1,setpts=PTS-STARTPTS[gs];"
             f"[0:v][gs]overlay=0:0[outv]",
             "-map", "[outv]",
+            "-c:v", "libx264",
             "-shortest",
             "-preset", "fast",
             output_path
@@ -240,37 +240,80 @@ def apply_green_screen(main_video, green_screen_video, output_path, w, h, durati
 def add_outro(main_video, outro_video, output_path, w, h):
     print("🎬 إضافة Outro...")
 
-    result = subprocess.run([
-        "ffmpeg", "-y",
-        "-i", main_video,
-        "-i", outro_video,
-        "-filter_complex",
-        f"[0:v]scale={w}:{h}[v0];[1:v]scale={w}:{h}[v1];"
-        f"[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[outv][outa]",
-        "-map", "[outv]",
-        "-map", "[outa]",
-        "-c:a", "aac",
-        "-preset", "fast",
-        output_path
-    ], capture_output=True, text=True, timeout=600)
+    # التحقق إذا كان للـ Outro صوت
+    probe = subprocess.run([
+        "ffprobe", "-v", "quiet",
+        "-print_format", "json",
+        "-show_streams", outro_video
+    ], capture_output=True, text=True)
 
-    if not os.path.exists(output_path):
-        print("⚠️ محاولة بديلة للـ Outro بدون صوت...")
-        result2 = subprocess.run([
+    outro_has_audio = False
+    outro_duration = 5
+    try:
+        info = json.loads(probe.stdout)
+        outro_has_audio = any(s["codec_type"] == "audio" for s in info["streams"])
+        outro_duration = float(info.get("format", {}).get("duration", 5))
+    except:
+        pass
+
+    print(f"🔊 الـ Outro {'فيه صوت' if outro_has_audio else 'بدون صوت'}")
+
+    if outro_has_audio:
+        # دمج مع صوت للاثنين
+        result = subprocess.run([
             "ffmpeg", "-y",
             "-i", main_video,
             "-i", outro_video,
             "-filter_complex",
-            f"[0:v]scale={w}:{h}[v0];[1:v]scale={w}:{h}[v1];"
-            f"[v0][v1]concat=n=2:v=1:a=0[outv]",
+            f"[0:v]scale={w}:{h},setsar=1,setpts=PTS-STARTPTS[v0];"
+            f"[1:v]scale={w}:{h},setsar=1,setpts=PTS-STARTPTS[v1];"
+            f"[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[outv][outa]",
             "-map", "[outv]",
-            "-an",
+            "-map", "[outa]",
+            "-c:v", "libx264",
+            "-c:a", "aac",
+            "-preset", "fast",
+            output_path
+        ], capture_output=True, text=True, timeout=600)
+    else:
+        # الـ Outro بدون صوت — نضيف صمت له
+        result = subprocess.run([
+            "ffmpeg", "-y",
+            "-i", main_video,
+            "-i", outro_video,
+            "-filter_complex",
+            f"[0:v]scale={w}:{h},setsar=1,setpts=PTS-STARTPTS[v0];"
+            f"[1:v]scale={w}:{h},setsar=1,setpts=PTS-STARTPTS[v1];"
+            f"aevalsrc=0:d={outro_duration}[silence];"
+            f"[v0][0:a][v1][silence]concat=n=2:v=1:a=1[outv][outa]",
+            "-map", "[outv]",
+            "-map", "[outa]",
+            "-c:v", "libx264",
+            "-c:a", "aac",
+            "-preset", "fast",
+            output_path
+        ], capture_output=True, text=True, timeout=600)
+
+    if not os.path.exists(output_path):
+        print("⚠️ محاولة concat file...")
+        with open("/tmp/concat.txt", "w") as f:
+            f.write(f"file '{main_video}'\n")
+            f.write(f"file '{outro_video}'\n")
+
+        result3 = subprocess.run([
+            "ffmpeg", "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", "/tmp/concat.txt",
+            "-vf", f"scale={w}:{h},setsar=1",
+            "-c:v", "libx264",
+            "-c:a", "aac",
             "-preset", "fast",
             output_path
         ], capture_output=True, text=True, timeout=600)
 
         if not os.path.exists(output_path):
-            print(f"❌ فشل Outro: {result2.stderr[:200]}")
+            print(f"❌ فشل Outro: {result3.stderr[:300]}")
             return False
 
     print("✅ تم إضافة Outro")
@@ -304,6 +347,7 @@ def cleanup():
         "/tmp/outro.mp4",
         "/tmp/after_gs.mp4",
         "/tmp/final_video.mp4",
+        "/tmp/concat.txt",
     ]
     for f in files:
         if os.path.exists(f):
@@ -341,7 +385,7 @@ else:
         # 2 - تحميل Green Screen من Cloudinary
         has_gs = download_from_cloudinary(GREEN_SCREEN_ID, "/tmp/green_screen.mp4", "video")
 
-        # 3 - تطبيق Green Screen مع الصوت وقطعه بمدة الفيديو الرئيسي
+        # 3 - تطبيق Green Screen
         if has_gs:
             success = apply_green_screen(
                 "/tmp/main_video.mp4",
