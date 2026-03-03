@@ -163,21 +163,24 @@ def download_video(video):
     print("✅ تم تحميل الفيديو")
     return True
 
-# ─── جلب أبعاد الفيديو ───────────────────────────────────
-def get_dimensions(video_path):
+# ─── جلب أبعاد ومدة الفيديو ──────────────────────────────
+def get_video_info(video_path):
     probe = subprocess.run([
         "ffprobe", "-v", "quiet",
         "-print_format", "json",
-        "-show_streams", video_path
+        "-show_streams",
+        "-show_format",
+        video_path
     ], capture_output=True, text=True)
     try:
         info = json.loads(probe.stdout)
         vstream = next((s for s in info["streams"] if s["codec_type"] == "video"), None)
         w = vstream["width"] if vstream else 1080
         h = vstream["height"] if vstream else 1920
-        return w, h
+        duration = float(info["format"].get("duration", 60))
+        return w, h, duration
     except:
-        return 1080, 1920
+        return 1080, 1920, 60
 
 # ─── تحميل ملفات Cloudinary ──────────────────────────────
 def download_from_cloudinary(public_id, output_path, resource_type="video"):
@@ -190,23 +193,47 @@ def download_from_cloudinary(public_id, output_path, resource_type="video"):
     return os.path.exists(output_path)
 
 # ─── إضافة Green Screen ──────────────────────────────────
-def apply_green_screen(main_video, green_screen_video, output_path, w, h):
+def apply_green_screen(main_video, green_screen_video, output_path, w, h, duration):
     print("🎨 إضافة Green Screen...")
+    print(f"⏱️ مدة الفيديو الرئيسي: {duration:.1f} ثانية - سيتم قطع Green Screen بهذه المدة")
+
     result = subprocess.run([
         "ffmpeg", "-y",
         "-i", main_video,
         "-i", green_screen_video,
         "-filter_complex",
-        f"[1:v]scale={w}:{h},colorkey=0x00FF00:0.3:0.1[gs];[0:v][gs]overlay=0:0",
-        "-codec:a", "copy",
+        # قطع Green Screen بمدة الفيديو الرئيسي + إزالة اللون الأخضر + الحفاظ على صوت الفيديو الرئيسي
+        f"[1:v]trim=duration={duration},scale={w}:{h},colorkey=0x00FF00:0.3:0.1,setpts=PTS-STARTPTS[gs];"
+        f"[0:v][gs]overlay=0:0[outv]",
+        "-map", "[outv]",
+        "-map", "0:a",          # صوت الفيديو الرئيسي فقط
+        "-c:a", "aac",          # ترميز الصوت
+        "-shortest",
         "-preset", "fast",
         output_path
     ], capture_output=True, text=True, timeout=600)
 
     if not os.path.exists(output_path):
-        print(f"❌ فشل Green Screen: {result.stderr[:200]}")
-        return False
-    print("✅ تم إضافة Green Screen")
+        print(f"⚠️ محاولة بديلة...")
+        # محاولة بديلة إذا لم يكن للفيديو الرئيسي صوت
+        result2 = subprocess.run([
+            "ffmpeg", "-y",
+            "-i", main_video,
+            "-i", green_screen_video,
+            "-filter_complex",
+            f"[1:v]trim=duration={duration},scale={w}:{h},colorkey=0x00FF00:0.3:0.1,setpts=PTS-STARTPTS[gs];"
+            f"[0:v][gs]overlay=0:0[outv]",
+            "-map", "[outv]",
+            "-shortest",
+            "-preset", "fast",
+            output_path
+        ], capture_output=True, text=True, timeout=600)
+
+        if not os.path.exists(output_path):
+            print(f"❌ فشل Green Screen: {result2.stderr[:300]}")
+            return False
+
+    print("✅ تم إضافة Green Screen مع الحفاظ على الصوت")
     return True
 
 # ─── إضافة Outro ─────────────────────────────────────────
@@ -218,21 +245,24 @@ def add_outro(main_video, outro_video, output_path, w, h):
         "-i", main_video,
         "-i", outro_video,
         "-filter_complex",
-        f"[0:v]scale={w}:{h}[v0];[1:v]scale={w}:{h}[v1];[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[outv][outa]",
+        f"[0:v]scale={w}:{h}[v0];[1:v]scale={w}:{h}[v1];"
+        f"[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[outv][outa]",
         "-map", "[outv]",
         "-map", "[outa]",
+        "-c:a", "aac",
         "-preset", "fast",
         output_path
     ], capture_output=True, text=True, timeout=600)
 
     if not os.path.exists(output_path):
-        print("⚠️ محاولة بديلة للـ Outro...")
+        print("⚠️ محاولة بديلة للـ Outro بدون صوت...")
         result2 = subprocess.run([
             "ffmpeg", "-y",
             "-i", main_video,
             "-i", outro_video,
             "-filter_complex",
-            f"[0:v]scale={w}:{h}[v0];[1:v]scale={w}:{h}[v1];[v0][v1]concat=n=2:v=1:a=0[outv]",
+            f"[0:v]scale={w}:{h}[v0];[1:v]scale={w}:{h}[v1];"
+            f"[v0][v1]concat=n=2:v=1:a=0[outv]",
             "-map", "[outv]",
             "-an",
             "-preset", "fast",
@@ -304,20 +334,20 @@ else:
         if not download_video(new_video):
             exit(1)
 
-        # جلب الأبعاد
-        w, h = get_dimensions("/tmp/main_video.mp4")
-        print(f"📐 أبعاد الفيديو: {w}x{h}")
+        # جلب الأبعاد والمدة
+        w, h, duration = get_video_info("/tmp/main_video.mp4")
+        print(f"📐 أبعاد: {w}x{h} | ⏱️ المدة: {duration:.1f} ثانية")
 
         # 2 - تحميل Green Screen من Cloudinary
         has_gs = download_from_cloudinary(GREEN_SCREEN_ID, "/tmp/green_screen.mp4", "video")
 
-        # 3 - تطبيق Green Screen
+        # 3 - تطبيق Green Screen مع الصوت وقطعه بمدة الفيديو الرئيسي
         if has_gs:
             success = apply_green_screen(
                 "/tmp/main_video.mp4",
                 "/tmp/green_screen.mp4",
                 "/tmp/after_gs.mp4",
-                w, h
+                w, h, duration
             )
             current_video = "/tmp/after_gs.mp4" if success else "/tmp/main_video.mp4"
         else:
